@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skyradar
+  namespace: skyradar
+  labels:
+    app: skyradar
+spec:
+  replicas: 1                      # app leve — 1 réplica é suficiente
+  selector:
+    matchLabels:
+      app: skyradar
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0            # zero-downtime deploy
+  template:
+    metadata:
+      labels:
+        app: skyradar
+    spec:
+      # ── Segurança ─────────────────────────────────────────────────────────
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+
+      # ── Container ─────────────────────────────────────────────────────────
+      containers:
+        - name: skyradar
+          image: andrepereira/skyradar:latest   # ajuste para seu registry
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+
+          # ── Variáveis de ambiente ────────────────────────────────────────
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+
+          # ── Recursos (footprint mínimo) ──────────────────────────────────
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          # ── Health checks ────────────────────────────────────────────────
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+
+          # ── Filesystem read-only ─────────────────────────────────────────
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # Gunicorn precisa de /tmp para sockets temporários
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      # Não reiniciar a não ser em falha
+      restartPolicy: Always
+
+      # Evita que o pod puxe imagem de slow registries em prod
+      terminationGracePeriodSeconds: 30
